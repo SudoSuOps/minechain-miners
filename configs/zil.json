@@ -1,0 +1,18 @@
+{
+  "common": {
+    "devices": "0,1,2,3",
+    "log_file": "logs/zil.log"
+  },
+  "pools": [
+    {
+      "url": "stratum+tcp://zil.pool.example:7007",
+      "user": "ZIL_WALLET",
+      "pass": "x"
+    }
+  ],
+  "options": [
+    "--algo=zil",
+    "--tfan=60",
+    "--templimit=75"
+  ]
+}

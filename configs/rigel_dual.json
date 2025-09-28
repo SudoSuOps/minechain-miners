@@ -1,0 +1,26 @@
+{
+  "common": {
+    "devices": "0,1,2,3",
+    "log_file": "logs/rigel-dual.log"
+  },
+  "pools": [
+    {
+      "url": "stratum+tcp://ethproxy.pool.example:4444",
+      "user": "ETH_WALLET.worker",
+      "pass": "x",
+      "algo": "ethash"
+    },
+    {
+      "url": "stratum+tcp://zil.pool.example:7007",
+      "user": "ZIL_WALLET",
+      "pass": "x",
+      "algo": "zil"
+    }
+  ],
+  "options": [
+    "--zilmaxsecs=90",
+    "--dual-mode=zil",
+    "--tfan=65",
+    "--templimit=75"
+  ]
+}

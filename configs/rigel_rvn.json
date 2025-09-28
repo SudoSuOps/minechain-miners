@@ -1,0 +1,18 @@
+{
+  "common": {
+    "algo": "kawpow",
+    "devices": "0,1,2,3",
+    "log_file": "logs/rigel.log"
+  },
+  "pools": [
+    {
+      "url": "stratum+tcp://rvn.pool.example:6060",
+      "user": "RVN_WALLET_ADDRESS.worker",
+      "pass": "x"
+    }
+  ],
+  "options": [
+    "--templimit=75",
+    "--tfan=60"
+  ]
+}
