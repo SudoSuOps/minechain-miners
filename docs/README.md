@@ -36,8 +36,7 @@ cd minechain-miners
 nano configs/rigel_rvn.json
 
 # 4) launch with watchdog in a screen session (auto restarts on crash)
-
-
+screen -S miner ./scripts/miner-watchdog.sh
 # (optional) view miner logs
 screen -r miner   # reattach
 Ctrl+a then d     # detach without killing
@@ -59,6 +58,24 @@ screen -S miner ./scripts/miner-watchdog.sh
 * Internet egress to your mining pool(s).
 * Packages used by the scripts: `screen`, `git`, `jq`, `wget`, `bc` (installed automatically by `miner-install.sh`; install manually with `sudo apt-get install -y screen jq wget bc` if needed).
 * If you see `NoPermission` when applying OC, it’s driver policy (CoolBits). Mining works without OC—tune later.
+
+---
+
+## 🏗️ Operations Infrastructure Overview
+
+| Layer | Purpose | Tooling |
+| --- | --- | --- |
+| Git Source | Versioned configs, scripts, service manifests | GitHub (`minechain-miners` repo) |
+| CI / Controller | Authoritative workstation or CI runner applying changes | Manual (`git commit/push`), optional GitHub Actions |
+| Provisioning | Install/update miner stack on rigs | `scripts/miner-install.sh`, Makefile targets |
+| Orchestration | Fleet-wide rollout | SSH fan-out, Ansible playbooks (recommended) |
+| Runtime | Miner execution, watchdog, idle orchestration | Rigel miner, `screen`, systemd |
+| Monitoring | Telemetry, alerts | Rigel HTTP API, `tail -f`, Prometheus exporters, Grafana |
+| Logging | Miner output, system journals | JSON-configured log files, `journald`, centralized syslog |
+
+**Hardware profile:** validated on 8× NVIDIA RTX 5090 rigs (Ubuntu 24.04, NVIDIA open 580 drivers, CUDA 13.x). Ensure at least 16 GB RAM, robust PSU, and stable cooling per chassis.
+
+**Network:** place rigs on a management VLAN reachable from the controller. Allow outbound TCP to mining pools; restrict inbound except SSH from trusted hosts.
 
 ---
 
@@ -134,6 +151,52 @@ Idle mode polls `nvidia-smi` every 60 s. Adjust the threshold by editing the s
 * `--api-bind` – expose HTTP API
 
 Refer to <https://rigelminer.com> for the full flag matrix and supported algorithms.
+
+---
+
+## 🌐 Network & Security Posture
+
+* Restrict SSH to controller IPs (e.g., via UFW or upstream firewall rules).
+* Use SSH keys only; disable password auth on rigs.
+* For pools requiring TLS, set `stratum+ssl://` endpoints and consider `--no-strict-ssl` only if using self-signed certs.
+* Keep BIOS firmware up to date and enable Secure Boot policies as supported by NVIDIA drivers.
+* Segregate mining traffic from production (AI/Kubernetes) workloads via VLANs/QoS.
+
+### Secrets Handling
+
+* Wallet addresses are fine in Git; keep mnemonics/keys offline.
+* Optionally template configs using environment substitution at deploy time (`envsubst < templates/rigel.json.tpl > configs/rigel_rvn.json`).
+* For fleet automation, store per-rig overrides in an encrypted vault (Ansible Vault, sops) and render at runtime.
+
+---
+
+## 🔄 Automation Pipeline
+
+1. **Develop:** Update JSON profiles, scripts, or Makefile locally on the controller.
+2. **Review:** Optionally open PRs for peer review (GitHub default branch `main`).
+3. **Merge:** Push to `origin/main` once ready.
+4. **Deploy:**
+   * Small changes – run `make update && make watchdog` per rig.
+   * Fleet updates – execute the SSH loop or an Ansible playbook.
+5. **Verify:** Inspect Rigel API, logs, and pool dashboards for hashrate consistency.
+
+Ansible snippet (example task):
+
+```yaml
+- hosts: miners
+  tasks:
+    - name: Update repo
+      ansible.builtin.git:
+        repo: git@github.com:SudoSuOps/minechain-miners.git
+        dest: /home/{{ ansible_user }}/minechain-miners
+        version: main
+    - name: Restart watchdog
+      ansible.builtin.shell: |
+        screen -S miner -X quit || true
+        screen -S miner ./scripts/miner-watchdog.sh
+      args:
+        chdir: /home/{{ ansible_user }}/minechain-miners
+```
 
 ---
 
@@ -233,6 +296,19 @@ make update      # git pull origin main
 
 ---
 
+## 📊 Monitoring & Alerting
+
+* **Rigel API polling:** scrape `/summary` or `/workers` endpoints for hashrate, share stats.
+* **Prometheus exporter:** wrap API calls with a simple exporter (Python/Go) and surface metrics to Grafana.
+* **Log shipping:** tail `logs/*.log` into Loki/ELK for centralized search and alerting on error patterns.
+* **System metrics:** deploy `node_exporter` for GPU/core temperatures, power draw (via `nvidia_smi_exporter`).
+* **Alerting examples:**
+  * Hashrate below threshold for 5 min → PagerDuty/Slack alert.
+  * Share rejection rate >5% → investigate pool or tuning.
+  * GPU temperature >80 °C → throttle or shut down rig.
+
+---
+
 ## 🩺 Troubleshooting
 
 * `screen`, `bc`, or `jq` missing → rerun `./scripts/miner-install.sh` or install manually.
@@ -240,6 +316,15 @@ make update      # git pull origin main
 * Miner exits instantly → verify pool URL, wallet syntax, firewall/NAT, and algorithm.
 * Rejected shares / low hashrate → check algo, pool region, intensity settings.
 * Idle mode never starts → ensure `nvidia-smi` works; lower `IDLE_THRESHOLD`.
+
+### Common Fixes
+
+| Symptom | Likely Cause | Mitigation |
+| --- | --- | --- |
+| `SSL: certificate verify failed` | Pool using self-signed cert | Import CA to trust store or use `--no-strict-ssl` temporarily |
+| Immediate exit with code 2 | Invalid algo/endpoint | Double-check `algo` and pool docs |
+| Watchdog restarts continuously | Config error or network outage | Inspect `logs/rigel_*.log`, verify connectivity |
+| OC settings not applying | Missing CoolBits or root perms | Enable CoolBits in Xorg, run with `sudo nvidia-settings`, or omit OC |
 
 ---
 
